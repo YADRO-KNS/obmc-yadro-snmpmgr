@@ -1,0 +1,1 @@
+option('remote-host', type: 'feature', value: 'disabled', description: 'Call D-Bus on remote host')
