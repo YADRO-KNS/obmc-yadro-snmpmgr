@@ -4,6 +4,9 @@
  */
 
 #include "dbus.hpp"
+
+#include "errors.hpp"
+
 #include <sdbusplus/exception.hpp>
 
 namespace phosphor
@@ -30,8 +33,14 @@ Services getObject(const Path& path, const Interfaces& ifaces)
     }
     catch (const sdbusplus::exception::SdBusError& ex)
     {
-        fprintf(stderr, "ERROR: getObject() failed, %s\n", ex.what());
-        throw;
+        if (!strcmp(ex.name(), "org.freedesktop.DBus.Error.FileNotFound"))
+        {
+            throw ServiceNotFound();
+        }
+        else
+        {
+            throw ObjectMapperNotFound();
+        }
     }
     return services;
 }
@@ -49,8 +58,9 @@ ManagedObjects getManagedObjects(const ServiceName& service, const Path& path)
     }
     catch (const sdbusplus::exception::SdBusError& ex)
     {
-        fprintf(stderr, "ERROR: getManagedObjects() failed, %s\n", ex.what());
-        throw;
+        // NOTE: It is unlikely case.
+        //       e.g., phosphor-snmp crashed right after ObjectMapper call.
+        throw SNMPMgrError("GetManagedObjects failed, %s", ex.what());
     }
     return objects;
 }

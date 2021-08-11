@@ -4,6 +4,7 @@
  */
 
 #include "dbus.hpp"
+#include "errors.hpp"
 
 #include <CLI/CLI.hpp>
 
@@ -56,7 +57,27 @@ void addReceiver(const std::string& address, uint16_t port)
     method.append(address, port);
 
     phosphor::dbus::Path path;
-    phosphor::dbus::bus.call(method).read(path);
+    try
+    {
+        phosphor::dbus::bus.call(method).read(path);
+    }
+    catch (const sdbusplus::exception::SdBusError& ex)
+    {
+        static constexpr auto InvalidArgument =
+            "xyz.openbmc_project.Common.Error.InvalidArgument";
+        if (!strcmp(ex.name(), InvalidArgument))
+        {
+            throw SNMPMgrError("Create SNMP trap receiver failed, %s",
+                               ex.description());
+        }
+        else
+        {
+            // NOTE: This is unlikely case.
+            throw SNMPMgrError("%s.Client('%s', %u) failed, %s",
+                               SNMPManagerIface, address.c_str(), port,
+                               ex.what());
+        }
+    }
 
     printf("Receiver #%s added: address=%s, port=%d\n",
            path.c_str() + SNMPMgrPathLen + 1, address.c_str(), port);
@@ -73,11 +94,24 @@ void dropReceiver(size_t index)
     path += "/";
     path += std::to_string(index);
 
-    auto service = phosphor::dbus::getService(path, SNMPReceiverIface);
-    auto method = phosphor::dbus::bus.new_method_call(
-        service.c_str(), path.c_str(), "xyz.openbmc_project.Object.Delete",
-        "Delete");
-    phosphor::dbus::bus.call_noreply(method);
+    try
+    {
+        auto service = phosphor::dbus::getService(path, SNMPReceiverIface);
+        auto method = phosphor::dbus::bus.new_method_call(
+            service.c_str(), path.c_str(), "xyz.openbmc_project.Object.Delete",
+            "Delete");
+        phosphor::dbus::bus.call_noreply(method);
+    }
+    catch (const ServiceNotFound&)
+    {
+        throw SNMPMgrError("SNMP trap receiver #%zu doesn't exist!", index);
+    }
+    catch (const sdbusplus::exception::SdBusError& ex)
+    {
+        // NOTE: This is unlikely case.
+        throw SNMPMgrError("Delete object at '%s' failed, %s", path.c_str(),
+                           ex.what());
+    }
 
     printf("SNMP trap receiver #%zu removed!\n", index);
 }
@@ -137,6 +171,11 @@ int main(int argc, char* argv[])
     catch (const CLI::ParseError& ex)
     {
         return app.exit(ex);
+    }
+    catch (const SNMPMgrError& ex)
+    {
+        fprintf(stderr, "ERROR: %s\n", ex.what());
+        return EXIT_FAILURE;
     }
 
     return EXIT_SUCCESS;
